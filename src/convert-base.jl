@@ -33,11 +33,7 @@ sexp(::Type{Complex128},x) = convert(Complex128,x)
 
 
 # NilSxp
-if VERSION < v"v0.4-"
-    sexp(::Nothing) = rNilValue
-else
-    sexp(::Void) = rNilValue
-end
+sexp(::Void) = sexp(Const.NilValue)
 rcopy(::Ptr{NilSxp}) = nothing
 
 
@@ -49,9 +45,9 @@ sexp(::Type{SymSxp}, s::Symbol) = sexp(SymSxp,string(s))
 "Generic function for constructing Sxps from Julia objects."
 sexp(s::Symbol) = sexp(SymSxp,s)
 
-rcopy(::Type{Symbol},ss::SymSxp) = symbol(rcopy(AbstractString,ss))
+rcopy(::Type{Symbol},ss::SymSxp) = Symbol(rcopy(AbstractString,ss))
 rcopy(::Type{AbstractString},ss::SymSxp) = rcopy(AbstractString,ss.name)
-@compat rcopy{T<:Union{Symbol,AbstractString}}(::Type{T},s::Ptr{SymSxp}) =
+rcopy{T<:Union{Symbol,AbstractString}}(::Type{T},s::Ptr{SymSxp}) =
     rcopy(T,unsafe_load(s))
 
 
@@ -70,7 +66,7 @@ sexp(::Type{CharSxp},sym::Symbol) = sexp(CharSxp,string(sym))
 
 
 rcopy{T<:AbstractString}(::Type{T},s::CharSxpPtr) = convert(T, bytestring(unsafe_vec(s)))
-rcopy(::Type{Symbol},s::CharSxpPtr) = symbol(rcopy(AbstractString,s))
+rcopy(::Type{Symbol},s::CharSxpPtr) = Symbol(rcopy(AbstractString,s))
 rcopy(::Type{Int}, s::CharSxpPtr) = parse(Int, rcopy(s))
 
 "Create a `StrSxp` from an `AbstractString`"
@@ -87,10 +83,13 @@ sexp(st::AbstractString) = sexp(StrSxp,st)
 # general vectors
 function sexp{S<:VectorListSxp}(::Type{S}, a::AbstractArray)
     ra = protect(allocArray(S, size(a)...))
-    for i in 1:length(a)
-        ra[i] = a[i]
+    try
+        for i in 1:length(a)
+            ra[i] = a[i]
+        end
+    finally
+        unprotect(1)
     end
-    unprotect(1)
     ra
 end
 sexp(a::AbstractArray) = sexp(VecSxp,a)
@@ -144,9 +143,9 @@ end
 
 
 # Handle LglSxp seperately
-@compat sexp(::Type{LglSxp},v::Union{Bool,Cint}) =
+sexp(::Type{LglSxp},v::Union{Bool,Cint}) =
     ccall((:Rf_ScalarLogical,libR),Ptr{LglSxp},(Cint,),v)
-@compat function sexp{T<:Union{Bool,Cint}}(::Type{LglSxp}, a::AbstractArray{T})
+function sexp{T<:Union{Bool,Cint}}(::Type{LglSxp}, a::AbstractArray{T})
     ra = allocArray(LglSxp, size(a)...)
     copy!(unsafe_vec(ra),a)
     ra
@@ -211,14 +210,16 @@ function sexp{S<:VectorSxp}(::Type{S},d::Associative)
     n = length(d)
     vs = protect(allocArray(VecSxp,n))
     ks = protect(allocArray(StrSxp,n))
+    try
+        for (i,(k,v)) in enumerate(d)
+            ks[i] = string(k)
+            vs[i] = v
+        end
 
-    for (i,(k,v)) in enumerate(d)
-        ks[i] = string(k)
-        vs[i] = v
+        setNames!(vs,ks)
+    finally
+        unprotect(2)
     end
-
-    setNames!(vs,ks)
-    unprotect(2)
     vs
 end
 sexp{K,V<:AbstractString}(d::Associative{K,V}) = sexp(StrSxp,d)
@@ -237,13 +238,16 @@ end
 
 function rcopy{A<:Associative,S<:PairListSxp}(::Type{A}, s::Ptr{S})
     protect(s)
-    a = A()
-    K = keytype(a)
-    V = valtype(a)
-    for (k,v) in s
-        a[rcopy(K,k)] = rcopy(V,v)
+    try
+        a = A()
+        K = keytype(a)
+        V = valtype(a)
+        for (k,v) in s
+            a[rcopy(K,k)] = rcopy(V,v)
+        end
+    finally
+        unprotect(1)
     end
-    unprotect(1)
     a
 end
 

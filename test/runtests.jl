@@ -1,9 +1,8 @@
-using Base.Test, Compat
+using Base.Test
 hd = homedir()
 pd = Pkg.dir()
 
 using RCall
-using Compat
 
 # https://github.com/JuliaStats/RCall.jl/issues/68
 @test hd == homedir()
@@ -11,7 +10,8 @@ using Compat
 
 tests = ["basic",
          "conversion",
-         "dataframe"]
+         "dataframe",
+         "rstr"]
 
 println("Running tests:")
 
@@ -29,8 +29,8 @@ a = RObject(rand(10))
 @test typeof(RCall.sexp(Complex128, 1)) == Complex128
 @test typeof(rcopy(Vector{Float64}, a.p)) == Vector{Float64}
 b = RObject(true)
-@test rcopy(@compat(Int32(1))) == 1
-@test rcopy(Cint, @compat(Int32(1))) == 1
+@test rcopy(Int32(1)) == 1
+@test rcopy(Cint, Int32(1)) == 1
 @test rcopy(Cint, b.p) == 1
 @test rcopy(Vector{Cint}, b.p) == [1]
 @test rcopy(Array{Cint}, b.p) == [1]
@@ -46,6 +46,14 @@ f1 = RObject(funk)
 @test RCall.rlang_formula(:a) == :a
 
 #Dictionaries
-d = RObject(@compat(Dict(1=>2)))
-@test @compat Dict{Any,Any}("1" => 2) == rcopy(Dict, d)
-@test @compat Dict{Int,Int}(1=>2) == rcopy(Dict{Int,Int}, d)
+d = RObject(Dict(1=>2))
+@test Dict{Any,Any}("1" => 2) == rcopy(Dict, d)
+@test Dict{Int,Int}(1=>2) == rcopy(Dict{Int,Int}, d)
+
+# library
+# Since @rimport and @rlibrary create module objects which may be conflict with other objects,
+# it is safer to place them at the end of the test.
+@rimport MASS as mass
+@test_approx_eq rcopy(rcall(mass.ginv, RObject([1 2; 0 4]))) [1 -0.5; 0 0.25]
+@rlibrary MASS
+@test_approx_eq rcopy(rcall(ginv, RObject([1 2; 0 4]))) [1 -0.5; 0 0.25]

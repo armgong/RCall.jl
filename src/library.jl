@@ -6,7 +6,7 @@ for w in ("while", "if", "for", "try", "return", "break",
           "bitstype", "immutable", "ccall", "do", "module",
           "baremodule", "using", "import", "export", "importall",
           "false", "true")
-    push!(reserved, w) # construct Set this way for compat with Julia 0.2/0.3
+    push!(reserved, w)
 end
 
 function rwrap(pkg::ASCIIString,s::Symbol)
@@ -16,15 +16,17 @@ function rwrap(pkg::ASCIIString,s::Symbol)
     m = Module(s)
     consts = [Expr(:const,
                     Expr(:(=),
-                    symbol(x),
-                    rcall(symbol("::"),symbol(pkg),symbol(x)))
+                    Symbol(x),
+                    rcall(Symbol("::"),Symbol(pkg),Symbol(x)))
                 ) for x in members]
     id = Expr(:(=), :__package__, pkg)
-    exports = [symbol(x) for x in members]
-    eval(m, Expr(:toplevel, consts..., Expr(:export, exports...), id))
+    exports = [Symbol(x) for x in members]
+    s in exports && error("$pkg has a function with the same name as $(pkg), use `@rimport $pkg as ...` instead.")
+    eval(m, Expr(:toplevel, consts..., Expr(:export, exports...), id, Expr(:(=), :__exports__, exports)))
     m
 end
 
+"Import a R Package as a Julia module. You can also use classic Python syntax to make an alias: `@rimport *module-name* as *shorthand*`"
 macro rimport(x, args...)
     if length(args)==2 && args[1] == :as
         m = args[2]
@@ -50,10 +52,30 @@ macro rimport(x, args...)
     end
 end
 
-macro rusing(x)
-    sym = Expr(:quote, x)
+"""
+Load all exported functions/objects of a R package to the current module.
+"""
+macro rlibrary(x)
+    pkg = Expr(:quote, x)
     quote
-        @rimport $(esc(x))
-        eval(current_module(), Expr(:using, :., $sym))
+        reval("library($($pkg))")
+        members = rcopy("ls('package:$($pkg)')")
+        filter!(x -> !(x in reserved), members)
+        for m in members
+            sym = Symbol(m)
+            eval(current_module(), Expr(
+                    :(=),
+                    sym,
+                    Expr(:call, :rcall, QuoteNode(Symbol("::")), QuoteNode($pkg), QuoteNode(sym))
+                )
+            )
+        end
+    end
+end
+
+macro rusing(x)
+    pkg = Expr(:quote, x)
+    quote
+        error("`@rusing $($pkg)` is deprecated, please use the syntax `@rlibrary $($pkg)`.")
     end
 end

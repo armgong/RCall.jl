@@ -18,7 +18,7 @@ langsexp[2] = RObject([1 2; 0 0])
 globalEnv[:x] = RObject([1,2,3])
 @test rcopy(globalEnv[:x]) == [1,2,3]
 globalEnv[:y] = RObject([4,5,6])
-@test rcopy(rcall(symbol("+"),:x,:y)) == [5,7,9]
+@test rcopy(rcall(Symbol("+"),:x,:y)) == [5,7,9]
 
 x = 1:10
 @rput x
@@ -31,9 +31,6 @@ y = "foo"
 @rget x y::Array{UTF8String}
 @test isa(y,Vector{UTF8String})
 @test y[1] == "foo"
-
-@rimport MASS as mass
-@test round(rcopy(rcall(mass.ginv, RObject([1 2; 0 4]))),5) == [1 -0.5; 0 0.25]
 
 @test sprint(io -> rprint(io,RObject([1,2,3]))) == "[1] 1 2 3\n"
 
@@ -67,7 +64,7 @@ RCall.rgui_init()
 f = tempname()
 rcall(:png,f)
 rcall(:plot,1:10)
-rcall(symbol("dev.off"))
+rcall(Symbol("dev.off"))
 @test isfile(f)
 @test !RCall.rgui_start(true)
 @test_throws ErrorException RCall.rgui_start()
@@ -88,3 +85,12 @@ rprint(io, reval("""
    class(bar) <- "Bar"
    bar
 """))), "hello")
+
+# operators
+a = reval("a=c(1,2,3)")
+b = reval("b=c(4,5,6)")
+@test rcopy(a+b)==rcopy("a+b")
+@test rcopy(a-b)==rcopy("a-b")
+@test rcopy(a*b)==rcopy("a*b")
+@test rcopy(a/b)==rcopy("a/b")
+@test rcopy(a^b)==rcopy("a^b")

@@ -13,8 +13,8 @@ function rcopy(::Type{DataArray}, s::Ptr{IntSxp})
 end
 function rcopy(::Type{PooledDataArray}, s::Ptr{IntSxp})
     isFactor(s) || error("$s is not a R factor")
-    refs = DataArrays.RefArray([x == rNaInt ? zero(Int32) : x for x in s])
-    compact(PooledDataArray(refs,rcopy(getAttrib(s,rLevelsSymbol))))
+    refs = DataArrays.RefArray([isNA(x) ? zero(Int32) : x for x in s])
+    compact(PooledDataArray(refs,rcopy(getAttrib(s,Const.LevelsSymbol))))
 end
 rcopy{S<:VectorSxp}(::Type{AbstractDataArray}, s::Ptr{S}) = rcopy(DataArray, s)
 rcopy(::Type{AbstractDataArray}, s::Ptr{IntSxp}) =
@@ -30,20 +30,23 @@ end
 ## DataArray to sexp conversion.
 function sexp(v::DataArray)
     rv = protect(sexp(v.data))
-    for (i,isna) = enumerate(v.na)
-        if isna
-            rv[i] = NAel(eltype(rv))
+    try
+        for (i,isna) = enumerate(v.na)
+            if isna
+                rv[i] = NAel(eltype(rv))
+            end
         end
+    finally
+        unprotect(1)
     end
-    unprotect(1)
     rv
 end
 
 ## PooledDataArray to sexp conversion.
 function sexp{T<:ByteString,R<:Integer}(v::PooledDataArray{T,R})
     rv = sexp(v.refs)
-    setAttrib!(rv, rLevelsSymbol, sexp(v.pool))
-    setAttrib!(rv, rClassSymbol, sexp("factor"))
+    setAttrib!(rv, Const.LevelsSymbol, sexp(v.pool))
+    setAttrib!(rv, Const.ClassSymbol, sexp("factor"))
     rv
 end
 
@@ -51,13 +54,16 @@ end
 function sexp(d::DataFrame)
     nr,nc = size(d)
     rd = protect(allocArray(VecSxp, nc))
-    for i in 1:nc
-        rd[i] = sexp(d[d.colindex.names[i]])
+    try
+        for i in 1:nc
+            rd[i] = sexp(d[d.colindex.names[i]])
+        end
+        setAttrib!(rd,Const.NamesSymbol, sexp([string(n) for n in d.colindex.names]))
+        setAttrib!(rd,Const.ClassSymbol, sexp("data.frame"))
+        setAttrib!(rd,Const.RowNamesSymbol, sexp(1:nr))
+    finally
+        unprotect(1)
     end
-    setAttrib!(rd,rNamesSymbol, sexp([string(n) for n in d.colindex.names]))
-    setAttrib!(rd,rClassSymbol, sexp("data.frame"))
-    setAttrib!(rd,rRowNamesSymbol, sexp(1:nr))
-    unprotect(1)
     rd
 end
 
@@ -65,9 +71,12 @@ end
 # R formula objects
 function sexp(f::Formula)
     s = protect(rlang_p(:~,rlang_formula(f.lhs),rlang_formula(f.rhs)))
-    setAttrib!(s,rClassSymbol,sexp("formula"))
-    setAttrib!(s,".Environment",rGlobalEnv)
-    unprotect(1)
+    try
+        setAttrib!(s,Const.ClassSymbol,sexp("formula"))
+        setAttrib!(s,".Environment",Const.GlobalEnv)
+    finally
+        unprotect(1)
+    end
     s
 end
 
@@ -86,4 +95,3 @@ function rlang_formula(e::Expr)
     end
 end
 rlang_formula(e::Symbol) = e
-        

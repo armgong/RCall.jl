@@ -1,3 +1,4 @@
 deps/deps.jl
-docs/api
-site
+docs/build
+docs/gh-pages
+docs/site

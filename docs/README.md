@@ -1,23 +1,15 @@
 ### Building Documentations
 
-[Lexicon](https://github.com/MichaelHatherly/Lexicon.jl) is used to extract the function's docstrings and generate the markdowns. See the [build](https://github.com/JuliaStats/RCall.jl/blob/master/docs/build.jl) script under the docs directory. Running it will generate the markdown files. For example,
-```bash
-julia docs/build.jl
-```
+[Documenter](https://github.com/MichaelHatherly/Documenter.jl) is used to generate
+the documentations automatically. Lastest documentations of the master branch
+and documentataions of tags are generated and deployed automatically to gh-
+pages.
 
-To push the files to readthedocs: right now, we have to trigger the build manually in readthedocs website. When this thing gets more mature, we should turn on the [webhook](http://read-the-docs.readthedocs.org/en/latest/webhooks.html).
+To view the docs locally, you first need to install Documenter.jl:
 
-*Update* 
+    julia -e 'Pkg.clone("https://github.com/MichaelHatherly/Documenter.jl")'
 
-As readthedocs and mkdocs do not play [well](https://github.com/rtfd/readthedocs.org/issues/1487), search function is broken. For the moment, the docs are hosted on [github.io](http://juliastats.github.io/RCall.jl/).
+then run the following from within this directory:
 
-To deploy the documents to gh-page, we need `mkdocs`,
-
-```bash
-# install mkdocs if necessary
-pip install mkdocs
-cd /path/to/RCall
-julia docs/build.jl
-mkdocs build --clean
-mkdocs gh-deploy
-```
+    julia make.jl
+    mkdocs serve
