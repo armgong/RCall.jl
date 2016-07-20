@@ -36,13 +36,6 @@ for sym in (:isArray,:isComplex,:isEnvironment,:isExpression,:isFactor,
     end
 end
 
-"Check whether an R variable is a factor variable"
-isFactor
-
-"Check whether an R variable is an ordered factor variable"
-isOrdered
-
-
 const voffset = Ref{UInt}()
 
 """
@@ -65,13 +58,13 @@ as `-2147483648`, the minimum 32-bit integer value.  Internally a `LglSxp` is
 represented as `Vector{Int32}`.  The convention is that `0` is `false`,
 `-2147483648` is `NA` and all other values represent `true`.
 """
-unsafe_vec{S<:VectorSxp}(s::Ptr{S}) = pointer_to_array(dataptr(s), length(s))
+unsafe_vec{S<:VectorSxp}(s::Ptr{S}) = Compat.unsafe_wrap(Array, dataptr(s), length(s))
 unsafe_vec{S<:VectorSxp}(r::RObject{S}) = unsafe_vec(r.p)
 
 """
 The same as `unsafe_vec`, except returns an appropriately sized array.
 """
-unsafe_array{S<:VectorSxp}(s::Ptr{S}) =  pointer_to_array(dataptr(s), size(s))
+unsafe_array{S<:VectorSxp}(s::Ptr{S}) =  Compat.unsafe_wrap(Array, dataptr(s), size(s))
 unsafe_array{S<:VectorSxp}(r::RObject{S}) = unsafe_array(r.p)
 
 
@@ -93,7 +86,7 @@ getindex{S<:VectorListSxp}(s::Ptr{S}, I::Real...) = sexp(getindex(unsafe_array(s
 String indexing finds the first element with the matching name
 """
 function getindex{S<:VectorSxp}(s::Ptr{S}, label::AbstractString)
-    ls = unsafe_vec(getNames(s))
+    ls = unsafe_vec(getnames(s))
     for (i,l) in enumerate(ls)
         if rcopy(l) == label
             return s[i]
@@ -208,26 +201,26 @@ end
 
 
 "Return a particular attribute of an RObject"
-function getAttrib{S<:Sxp}(s::Ptr{S}, sym::Ptr{SymSxp})
+function getattrib{S<:Sxp}(s::Ptr{S}, sym::Ptr{SymSxp})
     sexp(ccall((:Rf_getAttrib,libR),UnknownSxpPtr,(Ptr{S},Ptr{SymSxp}),s,sym))
 end
-getAttrib{S<:Sxp}(s::Ptr{S}, sym::RObject{SymSxp}) = getAttrib(s,sexp(sym))
-getAttrib{S<:Sxp}(s::Ptr{S}, sym::Symbol) = getAttrib(s,sexp(SymSxp,sym))
-getAttrib{S<:Sxp}(s::Ptr{S}, sym::AbstractString) = getAttrib(s,sexp(SymSxp,sym))
+getattrib{S<:Sxp}(s::Ptr{S}, sym::RObject{SymSxp}) = getattrib(s,sexp(sym))
+getattrib{S<:Sxp}(s::Ptr{S}, sym::Symbol) = getattrib(s,sexp(SymSxp,sym))
+getattrib{S<:Sxp}(s::Ptr{S}, sym::AbstractString) = getattrib(s,sexp(SymSxp,sym))
 
-getAttrib(r::RObject, sym) = RObject(getAttrib(r.p,sym))
+getattrib(r::RObject, sym) = RObject(getattrib(r.p,sym))
 
 "Set a particular attribute of an RObject"
-function setAttrib!{S<:Sxp,T<:Sxp}(s::Ptr{S},sym::Ptr{SymSxp},t::Ptr{T})
+function setattrib!{S<:Sxp,T<:Sxp}(s::Ptr{S},sym::Ptr{SymSxp},t::Ptr{T})
     ccall((:Rf_setAttrib,libR),Ptr{Void},(Ptr{S},Ptr{SymSxp},Ptr{T}),s,sym,t)
     return nothing
 end
-setAttrib!{S<:Sxp,T<:Sxp}(s::Ptr{S},sym::RObject{SymSxp},t::Ptr{T}) = setAttrib!(s,sexp(sym),t)
-setAttrib!{S<:Sxp,T<:Sxp}(s::Ptr{S},sym::Symbol,t::Ptr{T}) = setAttrib!(s,sexp(SymSxp,sym),t)
-setAttrib!{S<:Sxp,T<:Sxp}(s::Ptr{S},sym::AbstractString,t::Ptr{T}) = setAttrib!(s,sexp(SymSxp,sym),t)
-setAttrib!{S<:Sxp}(s::Ptr{S},sym,t) = setAttrib!(s,sym,sexp(t))
+setattrib!{S<:Sxp,T<:Sxp}(s::Ptr{S},sym::RObject{SymSxp},t::Ptr{T}) = setattrib!(s,sexp(sym),t)
+setattrib!{S<:Sxp,T<:Sxp}(s::Ptr{S},sym::Symbol,t::Ptr{T}) = setattrib!(s,sexp(SymSxp,sym),t)
+setattrib!{S<:Sxp,T<:Sxp}(s::Ptr{S},sym::AbstractString,t::Ptr{T}) = setattrib!(s,sexp(SymSxp,sym),t)
+setattrib!{S<:Sxp}(s::Ptr{S},sym,t) = setattrib!(s,sym,sexp(t))
 
-setAttrib!(r::RObject, sym, t) = setAttrib!(r.p, sym, t)
+setattrib!(r::RObject, sym, t) = setattrib!(r.p, sym, t)
 
 attributes(s::SxpHead) = sexp(s.attrib)
 attributes(s::Sxp) = attributes(s.head)
@@ -236,7 +229,7 @@ attributes{S<:Sxp}(s::Ptr{S}) = attributes(unsafe_load(s))
 
 function size{S<:Sxp}(s::Ptr{S})
     isArray(s) || return (length(s),)
-    tuple(convert(Array{Int},unsafe_vec(getAttrib(s,Const.DimSymbol)))...)
+    tuple(convert(Array{Int},unsafe_vec(getattrib(s,Const.DimSymbol)))...)
 end
 size(r::RObject) = size(sexp(r))
 
@@ -244,28 +237,33 @@ size(r::RObject) = size(sexp(r))
 """
 Returns the names of an R vector.
 """
-getNames{S<:VectorSxp}(s::Ptr{S}) = getAttrib(s,Const.NamesSymbol)
-getNames(r::RObject) = RObject(getNames(sexp(r)))
+getnames{S<:Sxp}(s::Ptr{S}) = getattrib(s,Const.NamesSymbol)
+getnames(r::RObject) = RObject(getnames(sexp(r)))
+
+
+"""
+Returns the names of an R vector, the result is converted to a Julia symbol array.
+"""
+names(r::RObject) = rcopy(Array{Symbol}, getnames(sexp(r)))
 
 """
 Set the names of an R vector.
 """
-setNames!{S<:VectorSxp}(s::Ptr{S}, n::Ptr{StrSxp}) = setAttrib!(s,Const.NamesSymbol,n)
-setNames!(r::RObject,n) = RObject(setNames!(sexp(r),sexp(StrSxp,n)))
+setnames!{S<:Sxp}(s::Ptr{S}, n::Ptr{StrSxp}) = setattrib!(s,Const.NamesSymbol,n)
+setnames!(r::RObject,n) = RObject(setnames!(sexp(r),sexp(StrSxp,n)))
 
 """
 Returns the class of an R object.
 """
-getClass{S<:Sxp}(s::Ptr{S}) = getAttrib(s,Const.ClassSymbol)
-getClass(r::RObject) = RObject(getClass(sexp(r)))
+getclass{S<:Sxp}(s::Ptr{S}) = getattrib(s,Const.ClassSymbol)
+getclass(r::RObject) = RObject(getclass(sexp(r)))
 
 
 """
 Set the class of an R object.
 """
-setClass!{S<:Sxp}(s::Ptr{S},c::Ptr{StrSxp}) = setAttrib!(s,Const.ClassSymbol,c)
-setClass!(r::RObject,c) = RObject(setClass!(sexp(r)),sexp(StrSxp,c))
-
+setclass!{S<:Sxp}(s::Ptr{S},c::Ptr{StrSxp}) = setattrib!(s,Const.ClassSymbol,c)
+setclass!(r::RObject,c) = RObject(setclass!(sexp(r)),sexp(StrSxp,c))
 
 
 allocList(n::Int) = ccall((:Rf_allocList,libR),Ptr{ListSxp},(Cint,),n)
@@ -285,49 +283,55 @@ end
 
 
 """
+Check if values correspond to R's NULL object.
+"""
+isnull{S<:Sxp}(s::Ptr{S}) = isNull(s)
+isnull{S<:Sxp}(r::RObject{S}) = isnull(r.p)
+
+"""
 NA element for each type
 """
-NAel(::Type{LglSxp}) = Const.NaInt
-NAel(::Type{IntSxp}) = Const.NaInt
-NAel(::Type{RealSxp}) = Const.NaReal
-NAel(::Type{CplxSxp}) = complex(Const.NaReal,Const.NaReal)
-NAel(::Type{StrSxp}) = sexp(Const.NaString)
-NAel(::Type{VecSxp}) = sexp(LglSxp,Const.NaInt) # used for setting
+naeltype(::Type{LglSxp}) = Const.NaInt
+naeltype(::Type{IntSxp}) = Const.NaInt
+naeltype(::Type{RealSxp}) = Const.NaReal
+naeltype(::Type{CplxSxp}) = complex(Const.NaReal,Const.NaReal)
+naeltype(::Type{StrSxp}) = sexp(Const.NaString)
+naeltype(::Type{VecSxp}) = sexp(LglSxp,Const.NaInt) # used for setting
 
 
 """
 Check if values correspond to R's sentinel NA values.
 """
-isNA(x::Complex128) = real(x) === Const.NaReal && imag(x) === Const.NaReal
-isNA(x::Float64) = x === Const.NaReal
-isNA(x::Int32) = x == Const.NaInt
-isNA(a::AbstractArray) = reshape(bitpack([isNA(aa) for aa in a]),size(a))
-isNA(s::CharSxpPtr) = s === sexp(Const.NaString)
+isna(x::Complex128) = real(x) === Const.NaReal && imag(x) === Const.NaReal
+isna(x::Float64) = x === Const.NaReal
+isna(x::Int32) = x == Const.NaInt
+isna(a::AbstractArray) = reshape(bitpack([isna(aa) for aa in a]),size(a))
+isna(s::CharSxpPtr) = s === sexp(Const.NaString)
 
 # this doesn't allow us to check VecSxp s
-function isNA{S<:VectorSxp}(s::Ptr{S})
+function isna{S<:VectorSxp}(s::Ptr{S})
     b = BitArray(size(s)...)
     for (i,e) in enumerate(s)
-        b[i] = isNA(e)
+        b[i] = isna(e)
     end
     b
 end
 
-isNA(r::RObject) = isNA(r.p)
+isna(r::RObject) = isna(r.p)
 
 
 """
 Check if there are any NA values in the vector.
 """
-function anyNA{S<:VectorSxp}(s::Ptr{S})
+function anyna{S<:VectorSxp}(s::Ptr{S})
     for i in s
-        if isNA(i)
+        if isna(i)
             return true
         end
     end
     return false
 end
-anyNA{S<:VectorSxp}(r::RObject{S}) = anyNA(r.p)
+anyna{S<:VectorSxp}(r::RObject{S}) = anyna(r.p)
 
 
 # StrSxp
@@ -355,7 +359,7 @@ isascii(r::RObject{CharSxp}) = isascii(sexp(r))
 function isascii(s::StrSxpPtr)
     ind = true
     for c in s
-        ind &= isNA(c) || isascii(c)
+        ind &= isna(c) || isascii(c)
     end
     return ind
 end
@@ -409,9 +413,9 @@ newEnvironment() = newEnvironment(globalEnv)
 
 
 "find namespace by name of the namespace, it is not error tolerant."
-function findNamespace(str::ByteString)
+function findNamespace(str::Compat.String)
     ccall((:R_FindNamespace,libR),Ptr{EnvSxp}, (Ptr{StrSxp},), sexp(str))
 end
 
 "get namespace by name of the namespace. It is safer to be used than findNamespace as it checks bound."
-getNamespace(str::ByteString) = reval(rlang_p(RCall.Const.BaseNamespace["getNamespace"], str))
+getNamespace(str::Compat.String) = reval(rlang_p(RCall.Const.BaseNamespace["getNamespace"], str))

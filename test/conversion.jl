@@ -5,7 +5,7 @@ r = RObject(x)
 @test length(r) == 1
 @test rcopy(r) == x
 @test isascii(r)
-@test isa(rcopy(r),ASCIIString)
+@test isascii(rcopy(r))
 @test rcopy(r[1]) == x
 @test isa(r[1],RObject{CharSxp})
 
@@ -14,7 +14,9 @@ r = RObject(x)
 @test isa(r,RObject{StrSxp})
 @test length(r) == 1
 @test rcopy(r) == x
-@test isa(rcopy(r),UTF8String)
+@test !isascii(rcopy(r))
+@test rcopy(Symbol, r) == Symbol(x)
+
 
 v = ["ap","xα⟩","pp"]
 r = RObject(v)
@@ -22,8 +24,11 @@ r = RObject(v)
 @test length(r) == length(v)
 @test rcopy(r) == v
 @test rcopy(r[1]) == v[1]
-
-
+@test rcopy(Array, r)[1] == v[1]
+@test rcopy(Vector, r)[1] == v[1]
+@test rcopy(Array{Compat.String}, r)[2] == v[2]
+@test rcopy(Array{Symbol}, r)[2] == Symbol(v[2])
+@test isa(RCall.sexp(StrSxp, :a), Ptr{StrSxp})
 
 
 # logical
@@ -39,6 +44,8 @@ r = RObject(v)
 @test length(r) == length(v)
 @test size(r) == size(v)
 @test rcopy(r) == v
+@test rcopy(Vector, r) == v
+@test rcopy(Array, r) == v
 @test r[1] === convert(Cint,v[1])
 
 
@@ -58,6 +65,7 @@ r = RObject(v)
 @test size(r) == size(v)
 @test isa(rcopy(r), Vector{Cint})
 @test rcopy(r) == collect(v)
+@test rcopy(Vector, r) == collect(v)
 @test r[1] === convert(Cint,v[1])
 @test r[3] === convert(Cint,v[3])
 r[2] = -100
@@ -73,6 +81,7 @@ r = RObject(m)
 @test size(r) == size(m)
 @test isa(rcopy(r), Matrix{Cint})
 @test rcopy(r) == m
+@test rcopy(Array, r) == m
 @test r[1] === convert(Cint,m[1])
 @test r[3] === convert(Cint,m[3])
 @test r[2,2] === convert(Cint,m[2,2])
@@ -121,6 +130,7 @@ r = RObject(v)
 @test size(r) == size(v)
 @test isa(rcopy(r), Vector{Float64})
 @test rcopy(r) == collect(v)
+@test rcopy(Vector, r) == collect(v)
 @test r[1] === convert(Float64,v[1])
 @test r[3] === convert(Float64,v[3])
 
@@ -131,6 +141,7 @@ r = RObject(m)
 @test size(r) == size(m)
 @test isa(rcopy(r), Matrix{Float64})
 @test rcopy(r) == m
+@test rcopy(Array, r) == m
 @test r[1] === convert(Float64,m[1])
 @test r[3] === convert(Float64,m[3])
 @test r[2,2] === convert(Float64,m[2,2])
@@ -173,6 +184,7 @@ r = RObject(v)
 @test size(r) == size(v)
 @test isa(rcopy(r), Vector{Complex128})
 @test rcopy(r) == collect(v)
+@test rcopy(Vector, r) == collect(v)
 @test r[1] === convert(Complex128,v[1])
 @test r[3] === convert(Complex128,v[3])
 
@@ -183,6 +195,7 @@ r = RObject(m)
 @test size(r) == size(m)
 @test isa(rcopy(r), Matrix{Complex128})
 @test rcopy(r) == m
+@test rcopy(Array, r) == m
 @test r[1] === convert(Complex128,m[1])
 @test r[3] === convert(Complex128,m[3])
 @test r[2,2] === convert(Complex128,m[2,2])
@@ -214,3 +227,38 @@ d = Dict(:a=>[1, 2, 4], :b=> ["e", "d", "f"])
 r = RObject(d)
 @test r[:a][3] == 4
 @test rcopy(r[:b][2]) == "d"
+l = rcopy("list(a=1,b=c(1,3,4))")
+@test l[:a] == 1
+@test l[:b][3] == 4
+d = RObject(Dict(1=>2))
+@test Dict{Any,Any}("1" => 2) == rcopy(Dict, d)
+@test Dict{Int,Int}(1=>2) == rcopy(Dict{Int,Int}, d)
+
+
+# function
+function funk(x,y)
+    x+y
+end
+f1 = RObject(funk)
+@test rcopy(Function, f1)(1,2) == 3
+@test rcopy(Function, f1.p)(1,2) == 3
+
+
+# misc
+a = RObject(rand(10))
+@test length(rcopy(Any, a)) == 10
+@test typeof(RCall.sexp(Cint, 1)) == Cint
+@test typeof(RCall.sexp(Float64, 1)) == Float64
+@test typeof(RCall.sexp(Complex128, 1)) == Complex128
+@test typeof(rcopy(Vector{Float64}, a.p)) == Vector{Float64}
+b = RObject(true)
+@test rcopy(Int32(1)) == 1
+@test rcopy(Cint, Int32(1)) == 1
+@test rcopy(Cint, b.p) == 1
+@test rcopy(Vector{Cint}, b.p) == [1]
+@test rcopy(Array{Cint}, b.p) == [1]
+@test rcopy(Vector{Bool}, b.p) == [true]
+@test rcopy(BitVector, b.p) == [true]
+
+#RCall.rlang_formula(parse("a+b"))
+@test RCall.rlang_formula(:a) == :a

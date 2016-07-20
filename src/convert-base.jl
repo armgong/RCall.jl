@@ -31,7 +31,6 @@ sexp(::Type{Float64},x) = convert(Float64,x)
 sexp(::Type{Complex128},x) = convert(Complex128,x)
 
 
-
 # NilSxp
 sexp(::Void) = sexp(Const.NilValue)
 rcopy(::Ptr{NilSxp}) = nothing
@@ -39,49 +38,37 @@ rcopy(::Ptr{NilSxp}) = nothing
 
 # SymSxp
 "Create a `SymSxp` from a `Symbol`"
-sexp(::Type{SymSxp}, s::AbstractString) = ccall((:Rf_install,libR),Ptr{SymSxp},(Ptr{UInt8},),bytestring(s))
+sexp(::Type{SymSxp}, s::AbstractString) = ccall((:Rf_install, libR), Ptr{SymSxp}, (Ptr{UInt8},), s)
 sexp(::Type{SymSxp}, s::Symbol) = sexp(SymSxp,string(s))
-
-"Generic function for constructing Sxps from Julia objects."
 sexp(s::Symbol) = sexp(SymSxp,s)
-
 rcopy(::Type{Symbol},ss::SymSxp) = Symbol(rcopy(AbstractString,ss))
 rcopy(::Type{AbstractString},ss::SymSxp) = rcopy(AbstractString,ss.name)
 rcopy{T<:Union{Symbol,AbstractString}}(::Type{T},s::Ptr{SymSxp}) =
     rcopy(T,unsafe_load(s))
 
 
-
 # CharSxp
 """
 Create a `CharSxp` from a String.
 """
-sexp(::Type{CharSxp},st::ASCIIString) =
-    ccall((:Rf_mkCharLen,libR),CharSxpPtr,(Ptr{UInt8},Cint),st,sizeof(st))
-sexp(::Type{CharSxp},st::UTF8String) =
-    ccall((:Rf_mkCharLenCE,libR),CharSxpPtr,(Ptr{UInt8},Cint,Cint),st,sizeof(st),1)
+function sexp(::Type{CharSxp}, st::Compat.String)
+    if isascii(st)
+        ccall((:Rf_mkCharLen, libR), CharSxpPtr, (Ptr{UInt8}, Cint), st, sizeof(st))
+    else  # assume UTF-8, is there a way of checking?
+        ccall((:Rf_mkCharLenCE, libR), CharSxpPtr,
+            (Ptr{UInt8}, Cint, Cint), st, sizeof(st), 1)
+    end
+end
+sexp(::Type{CharSxp}, st::AbstractString) = sexp(CharSxp, string(st))
+sexp(::Type{CharSxp}, sym::Symbol) = sexp(CharSxp, string(sym))
 
-sexp(::Type{CharSxp},st::AbstractString) = sexp(CharSxp,bytestring(st))
-sexp(::Type{CharSxp},sym::Symbol) = sexp(CharSxp,string(sym))
-
-
-rcopy{T<:AbstractString}(::Type{T},s::CharSxpPtr) = convert(T, bytestring(unsafe_vec(s)))
+rcopy{T<:AbstractString}(::Type{T},s::CharSxpPtr) = convert(T, Compat.String(unsafe_vec(s)))
 rcopy(::Type{Symbol},s::CharSxpPtr) = Symbol(rcopy(AbstractString,s))
 rcopy(::Type{Int}, s::CharSxpPtr) = parse(Int, rcopy(s))
 
-"Create a `StrSxp` from an `AbstractString`"
-sexp(::Type{StrSxp}, s::CharSxpPtr) =
-    ccall((:Rf_ScalarString,libR),Ptr{StrSxp},(CharSxpPtr,),s)
-
-sexp(::Type{StrSxp},st::AbstractString) = sexp(StrSxp,sexp(CharSxp,st))
-
-sexp(st::AbstractString) = sexp(StrSxp,st)
-
-
-
 
 # general vectors
-function sexp{S<:VectorListSxp}(::Type{S}, a::AbstractArray)
+function sexp{S<:VectorSxp}(::Type{S}, a::AbstractArray)
     ra = protect(allocArray(S, size(a)...))
     try
         for i in 1:length(a)
@@ -95,19 +82,36 @@ end
 sexp(a::AbstractArray) = sexp(VecSxp,a)
 
 function rcopy{T,S<:VectorSxp}(::Type{Array{T}}, s::Ptr{S})
+    protect(s)
     v = T[rcopy(T,e) for e in s]
-    reshape(v,size(s))
+    ret = reshape(v,size(s))
+    unprotect(1)
+    ret
+end
+function rcopy{T,S<:VectorSxp}(::Type{Vector{T}}, s::Ptr{S})
+    protect(s)
+    ret = T[rcopy(T,e) for e in s]
+    unprotect(1)
+    ret
 end
 
-
 # StrSxp
+sexp(::Type{StrSxp}, s::CharSxpPtr) = ccall((:Rf_ScalarString,libR),Ptr{StrSxp},(CharSxpPtr,),s)
+"Create a `StrSxp` from an `Symbol`"
+sexp(::Type{StrSxp},s::Symbol) = sexp(StrSxp,sexp(CharSxp,s))
+"Create a `StrSxp` from an `AbstractString`"
+sexp(::Type{StrSxp},st::AbstractString) = sexp(StrSxp,sexp(CharSxp,st))
+sexp(st::AbstractString) = sexp(StrSxp,st)
+"Create a `StrSxp` from an Abstract String Array"
 sexp{S<:AbstractString}(a::AbstractArray{S}) = sexp(StrSxp,a)
 
-rcopy(::Type{Array},s::StrSxpPtr) = rcopy(Array{isascii(s) ? ASCIIString : UTF8String}, s)
+rcopy(::Type{Vector}, s::StrSxpPtr) = rcopy(Vector{Compat.String}, s)
+rcopy(::Type{Array}, s::StrSxpPtr) = rcopy(Array{Compat.String}, s)
+rcopy(::Type{Symbol}, s::StrSxpPtr) = rcopy(Symbol,s[1])
 rcopy{T<:AbstractString}(::Type{T},s::StrSxpPtr) = rcopy(T,s[1])
 
 
-# LglSxp, IntSxp, RealSxp, CplxSxp
+# IntSxp, RealSxp, CplxSxp
 for (J,S) in ((:Integer,:IntSxp),
                  (:Real, :RealSxp),
                  (:Complex, :CplxSxp))
@@ -137,6 +141,7 @@ for (J,S) in ((:Integer,:IntSxp),
             copy!(a,unsafe_vec(s))
             a
         end
+        rcopy(::Type{Vector},s::Ptr{$S}) = rcopy(Vector{eltype($S)},s)
         rcopy(::Type{Array},s::Ptr{$S}) = rcopy(Array{eltype($S)},s)
     end
 end
@@ -192,6 +197,7 @@ function rcopy(::Type{Array{Bool}},s::Ptr{LglSxp})
     a
 end
 rcopy(::Type{Array},s::Ptr{LglSxp}) = rcopy(Array{Bool},s)
+rcopy(::Type{Vector},s::Ptr{LglSxp}) = rcopy(Vector{Bool},s)
 function rcopy(::Type{BitArray},s::Ptr{LglSxp})
     a = BitArray(size(s)...)
     v = unsafe_vec(s)
@@ -216,7 +222,7 @@ function sexp{S<:VectorSxp}(::Type{S},d::Associative)
             vs[i] = v
         end
 
-        setNames!(vs,ks)
+        setnames!(vs,ks)
     finally
         unprotect(2)
     end
@@ -227,17 +233,24 @@ sexp(d::Associative) = sexp(VecSxp,d)
 
 
 function rcopy{A<:Associative,S<:VectorSxp}(::Type{A}, s::Ptr{S})
-    a = A()
-    K = keytype(a)
-    V = valtype(a)
-    for (k,v) in zip(getNames(s),s)
-        a[rcopy(K,k)] = rcopy(V,v)
+    protect(s)
+    local a
+    try
+        a = A()
+        K = keytype(a)
+        V = valtype(a)
+        for (k,v) in zip(getnames(s),s)
+            a[rcopy(K,k)] = rcopy(V,v)
+        end
+    finally
+        unprotect(1)
     end
     a
 end
 
 function rcopy{A<:Associative,S<:PairListSxp}(::Type{A}, s::Ptr{S})
     protect(s)
+    local a
     try
         a = A()
         K = keytype(a)

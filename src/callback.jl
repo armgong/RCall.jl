@@ -4,12 +4,12 @@ Register a function pointer as an R NativeSymbol.
 This is completely undocumented, so may break: we technically are supposed to
 use R_registerRoutines, but this is _much_ easier for just 1 function.
 """
-function makeNativeSymbol(fptr::Ptr{Void})
-    # Rdynpriv.h
+function makeNativeSymbolRef(fptr::Ptr{Void})
+    # mirror Rf_MakeNativeSymbolRef of Rdynload.c
     rexfn = ccall((:R_MakeExternalPtrFn,libR), ExtPtrSxpPtr,
                      (Ptr{Void}, Ptr{Void}, Ptr{Void}),
                      fptr, sexp(Symbol("native symbol")), sexp(Const.NilValue))
-    setAttrib!(rexfn, Const.ClassSymbol, sexp("NativeSymbol"))
+    setattrib!(rexfn, Const.ClassSymbol, sexp("NativeSymbol"))
     preserve(rexfn)
     rexfn
 end
@@ -30,7 +30,7 @@ It receives a `ListSxpPtr` containing
  - a pointer to the Julia function (`ExtPtrSxpPtr`)
  - any arguments (as `SxpPtr`)
 """
-function callJuliaExtPtr(p::ListSxpPtr)
+function julia_extptr_callback(p::ListSxpPtr)
     try
         l = cdr(p) # skip callback pointer
 
@@ -74,7 +74,7 @@ const jtypExtPtrs = Dict{ExtPtrSxpPtr, Any}()
 """
 Called by the R finalizer.
 """
-function decrefExtPtr(p::ExtPtrSxpPtr)
+function decref_extptr(p::ExtPtrSxpPtr)
     delete!(jtypExtPtrs, p)
     return nothing
 end
@@ -84,10 +84,12 @@ const juliaDecref = Ref{Ptr{Void}}()
 """
 Register finalizer to be called by the R GC.
 """
-function registerFinalizer(s::ExtPtrSxpPtr)
+function registerCFinalizerEx(s::ExtPtrSxpPtr)
+    protect(s)
     ccall((:R_RegisterCFinalizerEx,libR),Void,
           (Ptr{ExtPtrSxp}, Ptr{Void}, Cint),
           s,juliaDecref[],0)
+    unprotect(1)
 end
 
 
@@ -106,7 +108,7 @@ function sexp(::Type{ExtPtrSxp}, j)
     jptr = pointer_from_objref(j)
     s = makeExternalPtr(jptr)
     jtypExtPtrs[s] = j
-    registerFinalizer(s)
+    registerCFinalizerEx(s)
     s
 end
 
@@ -121,16 +123,17 @@ Constructs the following R code
 
 """
 function sexp(::Type{ClosSxp}, f)
+    fptr = protect(sexp(ExtPtrSxp,f))
     body = protect(rlang_p(Symbol(".External"),
                            juliaCallback,
-                           sexp(ExtPtrSxp,f),
+                           fptr,
                            Const.DotsSymbol))
     local clos
     try
         lang = rlang_p(:function, sexp_arglist_dots(), body)
         clos = reval_p(lang)
     finally
-        unprotect(1)
+        unprotect(2)
     end
     clos
 end
